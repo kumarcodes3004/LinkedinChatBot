@@ -6,7 +6,7 @@ and gets blocked quickly).
 
 **How it works:**
 1. User enters company names (e.g. "Groww, Razorpay, JPMC") in the React UI.
-2. Spring Backend calls **Groq's LLM API** inorder to exctract company and role name from the user inout given by the user.
+2. Spring Backend calls **Groq's LLM API** inorder to exctract company and role name from the user input given by the user.
 2. After that backend calls **Tavily Search API**, scoped to `linkedin.com`, to find
    publicly indexed LinkedIn profile pages matching each company + role provided by user.
 3. The raw search snippets are sent to **Groq's LLM API** (Llama 3.3 70B), which ranks

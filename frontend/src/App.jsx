@@ -1,6 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
-import ChatMessage from "./components/ChatMessage";
+import React, { useEffect, useRef, useState } from "react";
+
+import Sidebar from "./components/Sidebar";
+import Header from "./components/Header";
+import RightPanel from "./components/RightPanel";
 import ChatInput from "./components/ChatInput";
+import ChatMessage from "./components/ChatMessage";
+import WelcomeCard from "./components/WelcomeCard";
 
 const API_BASE = "http://localhost:8080/api";
 
@@ -8,15 +13,7 @@ let idCounter = 0;
 const nextId = () => ++idCounter;
 
 export default function App() {
-  const [messages, setMessages] = useState([
-    {
-      id: nextId(),
-      role: "bot",
-      type: "text",
-      text: 'Hi! Tell me who you\'re looking for in plain English.\n\nExamples:\n• software engineer at Razorpay\n• backend engineers at Groww\n• senior java developers at JPMorgan Chase',
-    },
-  ]);
-
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const scrollRef = useRef(null);
@@ -63,10 +60,6 @@ export default function App() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Request failed with status ${res.status}`);
-      }
-
       const data = await res.json();
 
       const results = [...(data.results || [])].sort(
@@ -74,24 +67,26 @@ export default function App() {
       );
 
       setMessages((prev) =>
-          prev.map((m) =>
-              m.id === loadingId
-                  ? results.length > 0
-                      ? {
-                        ...m,
-                        type: "results",
-                        results,
-                        companies: data.companies,
-                        roleFilter: data.roleFilter,
-                      }
-                      : {
-                        ...m,
-                        type: "empty",
-                        companies: data.companies,
-                        roleFilter: data.roleFilter,
-                      }
-                  : m
-          )
+          prev.map((m) => {
+            if (m.id !== loadingId) return m;
+
+            if (results.length === 0) {
+              return {
+                ...m,
+                type: "empty",
+                companies: data.companies,
+                roleFilter: data.roleFilter,
+              };
+            }
+
+            return {
+              ...m,
+              type: "results",
+              results,
+              companies: data.companies,
+              roleFilter: data.roleFilter,
+            };
+          })
       );
     } catch (err) {
       setMessages((prev) =>
@@ -100,7 +95,7 @@ export default function App() {
                   ? {
                     ...m,
                     type: "error",
-                    text: `Something went wrong: ${err.message}`,
+                    text: err.message,
                   }
                   : m
           )
@@ -112,109 +107,69 @@ export default function App() {
 
   return (
       <div style={styles.page}>
-        <div style={styles.chatWindow}>
-          <header style={styles.header}>
-            <div style={styles.logoContainer}>
-              <div style={styles.logoCircle}>🎯</div>
+        <Sidebar />
 
-              <div>
-                <h1 style={styles.headerTitle}>Engineer Finder</h1>
-                <p style={styles.headerSubtitle}>
-                  Chat to scout public engineering talent
-                </p>
-              </div>
+        <div style={styles.center}>
+          <Header />
+
+          <div style={styles.chatContainer}>
+            <div ref={scrollRef} style={styles.chatArea}>
+              {messages.length === 0 && (
+                  <WelcomeCard onSuggestionClick={handleSend} />
+              )}
+
+              {messages.map((message) => (
+                  <ChatMessage
+                      key={message.id}
+                      message={message}
+                      onSuggestionClick={handleSend}
+                  />
+              ))}
             </div>
-          </header>
 
-          <div style={styles.messageList} ref={scrollRef}>
-            {messages.map((message) => (
-                <ChatMessage
-                    key={message.id}
-                    message={message}
-                    onSuggestionClick={handleSend}
-                />
-            ))}
+            <ChatInput loading={loading} onSend={handleSend} />
           </div>
-
-          <ChatInput
-              onSend={handleSend}
-              loading={loading}
-          />
         </div>
+
+        <RightPanel />
       </div>
   );
 }
 
 const styles = {
   page: {
-    minHeight: "100vh",
-    background: "#F4F6FB",
+    height: "100vh",
     display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: "30px",
-    fontFamily:
-        "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    background:
+        "linear-gradient(180deg,#F8FAFD 0%,#EEF3FB 100%)",
+    fontFamily: "Inter, sans-serif",
+    overflow: "hidden",
   },
 
-  chatWindow: {
-    width: "100%",
-    maxWidth: "760px",
-    height: "88vh",
-    background: "#F8F9FD",
-    borderRadius: "30px",
-    overflow: "hidden",
+  center: {
+    flex: 1,
     display: "flex",
     flexDirection: "column",
-    boxShadow: "0 20px 60px rgba(15,23,42,.12)",
+    padding: "24px",
+    gap: "20px",
+    overflow: "hidden",
   },
 
-  header: {
-    margin: "18px",
-    marginBottom: "10px",
-    background: "#232D5B",
-    borderRadius: "24px",
-    padding: "20px",
-  },
-
-  logoContainer: {
+  chatContainer: {
+    flex: 1,
     display: "flex",
-    alignItems: "center",
-    gap: "18px",
+    flexDirection: "column",
+    background: "#FFFFFF",
+    borderRadius: "28px",
+    overflow: "hidden",
+    border: "1px solid #E6ECF5",
+    boxShadow: "0 15px 40px rgba(15,23,42,.06)",
   },
 
-  logoCircle: {
-    width: "52px",
-    height: "52px",
-    borderRadius: "18px",
-    background: "rgba(255,255,255,.12)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "22px",
-  },
-
-  headerTitle: {
-    margin: 0,
-    color: "#fff",
-    fontSize: "36px",
-    fontWeight: 700,
-    letterSpacing: "-0.5px",
-  },
-
-  headerSubtitle: {
-    marginTop: "6px",
-    marginBottom: 0,
-    color: "#C9D0EA",
-    fontSize: "15px",
-  },
-
-  messageList: {
+  chatArea: {
     flex: 1,
     overflowY: "auto",
-    padding: "8px 18px 18px",
-    display: "flex",
-    flexDirection: "column",
-    scrollbarWidth: "thin",
+    padding: "32px",
+    background: "#FAFBFE",
   },
 };
