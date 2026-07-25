@@ -3,38 +3,33 @@ package com.omsatyam.linkedinfinder.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omsatyam.linkedinfinder.dto.ProfileResult;
 import com.omsatyam.linkedinfinder.dto.RawProfileSnippet;
+import com.omsatyam.linkedinfinder.exception.ExternalApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Sends the raw Tavily snippets to Groq (OpenAI-compatible chat completions API)
- * and asks it to rank + explain relevance for each profile, returning strict JSON
- * that we parse into ProfileResult records.
- */
+import static com.omsatyam.linkedinfinder.util.UtilityMtds.PROMPT;
+import static com.omsatyam.linkedinfinder.util.UtilityMtds.isAuthError;
+
+
 @Service
 public class GroqRankingService {
-
+    private static final Logger log = LoggerFactory.getLogger(GroqRankingService.class);
+    private static final Duration TIMEOUT = Duration.ofSeconds(12);
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String apiUrl;
     private final String model;
-    private static  final String PROMPT="Below is a list of publicly indexed LinkedIn profile snippets (title, url, short content excerpt).\n" +
-            "                For each one, extract a likely name, current title, and a relevanceScore (0-100) for how strong\n" +
-            "                a software engineering candidate they look like based ONLY on the visible text (seniority words\n" +
-            "                like Senior/Staff/Lead, specific tech stack mentions, etc). Also give a one-sentence matchReason.\n" +
-            "\n" +
-            "                Respond with ONLY a JSON array, no other text, in this exact shape:\n" +
-            "                [\n" +
-            "                  {\"name\": \"...\", \"title\": \"...\", \"company\": \"...\", \"linkedinUrl\": \"...\", \"matchReason\": \"...\", \"relevanceScore\": 0}\n" +
-            "                ]\n" +
-            "\n" +
-            "                Profiles:";
 
     public GroqRankingService(WebClient.Builder webClientBuilder,
                                ObjectMapper objectMapper,
@@ -73,11 +68,15 @@ public class GroqRankingService {
                 .bodyToMono(GroqResponse.class)
                 .map(this::parseResults)
                 .onErrorResume(ex -> {
-                    System.err.println("Groq ranking failed: " + ex.getMessage());
-                    // Fall back to unranked results rather than showing nothing
+                    if (isAuthError(ex)) {
+                        return Mono.error(new ExternalApiException(
+                                "Groq", "Groq API key was rejected (401/403) - check GROQ_API_KEY", ex));
+                    }
+                    log.error("Groq ranking failed", ex);
                     return Mono.just(fallback(snippets));
                 });
     }
+
 
     private String buildPrompt(List<RawProfileSnippet> snippets) {
         StringBuilder sb = new StringBuilder();
@@ -95,14 +94,14 @@ public class GroqRankingService {
     private List<ProfileResult> parseResults(GroqResponse response) {
         try {
             String content = response.choices().get(0).message().content().trim();
+            // Strip accidental markdown fences if the model adds them anyway
             content = content.replaceAll("```json", "").replaceAll("```", "").trim();
             return List.of(objectMapper.readValue(content, ProfileResult[].class));
         } catch (Exception e) {
-            System.err.println("Failed to parse Groq JSON response: " + e.getMessage());
+            log.error("Failed to parse Groq JSON response", e);
             return List.of();
         }
     }
-
     private List<ProfileResult> fallback(List<RawProfileSnippet> snippets) {
         return snippets.stream()
                 .map(s -> new ProfileResult(

@@ -12,6 +12,11 @@ and gets blocked quickly).
    them by apparent seniority/relevance and writes a one-line reason for each match.
 4. Results are returned to the React frontend as ranked cards with LinkedIn links.
 
+
+## Architectural Diagram
+
+![](/Users/kumarsatyam/Desktop/Screenshot 2026-07-25 at 4.53.00 PM.png)
+
 ## Prerequisites
 
 - Java 17+, Maven
@@ -68,14 +73,4 @@ Response body:
 ]
 ```
 
-## Notes / design decisions
 
-- **Why not scrape LinkedIn directly?** LinkedIn's ToS explicitly prohibits automated
-  scraping and has strong bot detection. This project instead uses Tavily, which crawls
-  publicly indexed pages (similar to a `site:linkedin.com/in` Google search), and never
-  touches LinkedIn's servers or requires login credentials.
-- **Why Groq for ranking?** It's free and fast, and the JSON-only system prompt keeps
-  parsing simple. Swappable with any OpenAI-compatible chat completion API if needed.
-- **Known limitation:** ranking quality depends entirely on what's visible in the public
-  search snippet — this is not a substitute for real profile data, and is intended as a
-  demo/prototype, not a production people-search tool.

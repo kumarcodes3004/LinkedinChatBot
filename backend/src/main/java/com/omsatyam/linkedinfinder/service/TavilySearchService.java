@@ -1,20 +1,30 @@
 package com.omsatyam.linkedinfinder.service;
 
 import com.omsatyam.linkedinfinder.dto.RawProfileSnippet;
+import com.omsatyam.linkedinfinder.exception.ExternalApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+
+import static com.omsatyam.linkedinfinder.util.UtilityMtds.isAuthError;
 
 
 @Service
 public class TavilySearchService {
-    private static final org.slf4j.Logger log =
-            org.slf4j.LoggerFactory.getLogger(TavilySearchService.class);
+
+    private static final Logger log = LoggerFactory.getLogger(TavilySearchService.class);
+    private static final Duration TIMEOUT = Duration.ofSeconds(8);
+
     private final WebClient webClient;
     private final String apiKey;
     private final String apiUrl;
@@ -27,9 +37,10 @@ public class TavilySearchService {
         this.apiUrl = apiUrl;
     }
 
-
+    /**
+     * Fires one Tavily search per company (in parallel) and flattens the results.
+     */
     public Mono<List<RawProfileSnippet>> searchCompanies(List<String> companies, String roleFilter) {
-        log.info("searching Engineers");
         return Flux.fromIterable(companies)
                 .flatMap(company -> searchOneCompany(company, roleFilter))
                 .collectList()
@@ -52,31 +63,36 @@ public class TavilySearchService {
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToMono(TavilyResponse.class)
+                .timeout(TIMEOUT)
                 .map(response -> {
                     List<RawProfileSnippet> snippets = toSnippets(company, response);
                     // Debug logging - tells you exactly how many raw hits Tavily returned
                     // vs how many survived the linkedin.com/in/ filter, per company.
                     int rawCount = response != null && response.results() != null ? response.results().size() : 0;
-                    log.info("[Tavily] {} -> {} raw results, {} kept as linkedin.com/in",company, rawCount, snippets.size());
+                    log.info("Tavily search for {} -> {} raw results, {} kept as linkedin.com/in",
+                            company, rawCount, snippets.size());
                     return snippets;
                 })
                 .onErrorResume(ex -> {
-                    // Don't let one company's failure kill the whole request
-                    log.error("Tavily search failed for {} : {} ", company, ex.getMessage());
+                    if (isAuthError(ex)) {
+                        return Mono.error(new ExternalApiException(
+                                "Tavily", "Tavily API key was rejected (401/403) - check TAVILY_API_KEY", ex));
+                    }
+                    // Anything else (timeout, 5xx, network blip) is treated as recoverable:
+                    // don't let one company's failure kill the whole request.
+                    log.error("Tavily search failed for {}", company, ex);
                     return Mono.just(List.of());
                 });
     }
 
+
+
     private String buildQuery(String company, String roleFilter) {
-        // Deliberately NOT wrapping the company name in quotes - exact-phrase matching
-        // kills recall for informal/abbreviated names (e.g. "JPMC" won't exact-match a
-        // profile that says "JPMorgan Chase & Co."). include_domains already restricts
-        // results to linkedin.com, so we don't need a site: filter in the query text either.
         String base = company;
         if (roleFilter != null && !roleFilter.isBlank()) {
             base += " " + roleFilter + " linkedin ";
         }
-        return base + " software engineer";
+        return base + " software engineer ";
     }
 
     private List<RawProfileSnippet> toSnippets(String company, TavilyResponse response) {
@@ -87,7 +103,6 @@ public class TavilySearchService {
                 .filter(r -> r.url() != null && r.url().contains("linkedin.com/in/"))
                 .map(r -> new RawProfileSnippet(company, r.title(), r.url(), r.content()))
                 .toList();
-
     }
 
     // --- Minimal records matching Tavily's response shape ---

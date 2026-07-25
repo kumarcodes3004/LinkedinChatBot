@@ -2,33 +2,33 @@ package com.omsatyam.linkedinfinder.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.omsatyam.linkedinfinder.dto.ParsedQuery;
+import com.omsatyam.linkedinfinder.exception.ExternalApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
+import static com.omsatyam.linkedinfinder.util.UtilityMtds.QUERY_PARSING_PROMPT;
+import static com.omsatyam.linkedinfinder.util.UtilityMtds.isAuthError;
+
+
 @Service
 public class QueryParsingService {
+
+    private static final Logger log = LoggerFactory.getLogger(QueryParsingService.class);
+    private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String apiUrl;
     private final String model;
-
-    private static final String QUERY_PARSING_PROMPT = """
-        Extract the company names and (optional) job role/title from this message.
-        Expand well-known abbreviations to their full company name (e.g. "JPMC" -> "JPMorgan Chase",
-        "GS" -> "Goldman Sachs"). If no role/title is mentioned, set roleFilter to null.
-
-        Respond with ONLY a JSON object, no other text, in this exact shape:
-        {"companies": ["..."], "roleFilter": "..." }
-
-        Message: "%s"
-        """;
 
     public QueryParsingService(WebClient.Builder webClientBuilder,
                                ObjectMapper objectMapper,
@@ -61,12 +61,18 @@ public class QueryParsingService {
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToMono(GroqResponse.class)
+                .timeout(TIMEOUT)
                 .map(this::parseResult)
                 .onErrorResume(ex -> {
-                    System.err.println("Query parsing failed, falling back to comma-split: " + ex.getMessage());
+                    if (isAuthError(ex)) {
+                        return Mono.error(new ExternalApiException(
+                                "Groq", "Groq API key was rejected (401/403) - check GROQ_API_KEY", ex));
+                    }
+                    log.error("Query parsing failed, falling back to comma-split", ex);
                     return Mono.just(fallback(message));
                 });
     }
+
 
     private ParsedQuery parseResult(GroqResponse response) {
         try {
@@ -74,15 +80,12 @@ public class QueryParsingService {
             content = content.replaceAll("```json", "").replaceAll("```", "").trim();
             return objectMapper.readValue(content, ParsedQuery.class);
         } catch (Exception e) {
-            System.err.println("Failed to parse Groq query-parsing response: " + e.getMessage());
+            log.error("Failed to parse Groq query-parsing response", e);
             return fallback("");
         }
     }
 
-    /**
-     * If Groq is unavailable, fall back to the old naive behavior (split on commas,
-     * no role) rather than returning nothing.
-     */
+
     private ParsedQuery fallback(String message) {
         List<String> companies = message.isBlank()
                 ? List.of()
