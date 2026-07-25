@@ -6,16 +6,18 @@ and gets blocked quickly).
 
 **How it works:**
 1. User enters company names (e.g. "Groww, Razorpay, JPMC") in the React UI.
-2. Spring Boot backend calls **Tavily Search API**, scoped to `linkedin.com`, to find
-   publicly indexed LinkedIn profile pages matching each company + "software engineer".
+2. Spring Backend calls **Groq's LLM API** inorder to exctract company and role name from the user inout given by the user.
+2. After that backend calls **Tavily Search API**, scoped to `linkedin.com`, to find
+   publicly indexed LinkedIn profile pages matching each company + role provided by user.
 3. The raw search snippets are sent to **Groq's LLM API** (Llama 3.3 70B), which ranks
    them by apparent seniority/relevance and writes a one-line reason for each match.
 4. Results are returned to the React frontend as ranked cards with LinkedIn links.
+5. We also provide user with more similar options like search for engineers at **Microsoft**,**Salesforece** etc. and all are clickable.
 
 
 ## Architectural Diagram
+![img.png](img.png)
 
-![](/Users/kumarsatyam/Desktop/Screenshot 2026-07-25 at 4.53.00 PM.png)
 
 ## Prerequisites
 
