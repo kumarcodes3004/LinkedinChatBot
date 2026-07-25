@@ -18,7 +18,8 @@ and gets blocked quickly).
 ## Architectural Diagram
 ![img.png](img.png)
 
-
+## Overview
+![img_1.png](img_1.png)
 ## Prerequisites
 
 - Java 17+, Maven
